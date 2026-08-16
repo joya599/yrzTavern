@@ -7,6 +7,8 @@ import dns from 'node:dns';
 import process from 'node:process';
 import http from 'node:http';
 import https from 'node:https';
+import os from 'node:os';
+import { exec } from 'node:child_process';
 
 import cors from 'cors';
 import { csrfSync } from 'csrf-sync';
@@ -272,6 +274,36 @@ app.use(multerMonkeyPatch);
 app.get('/version', async function (_, response) {
     const data = await getVersion();
     response.send(data);
+});
+
+// Exports a tar.gz archive of the entire data directory for backup purposes
+app.get('/export-data', function (_, response) {
+    const dataRoot = globalThis.DATA_ROOT;
+    const archiveName = `sillytavern-data-export-${Date.now()}.tar.gz`;
+    const archivePath = path.join(os.tmpdir(), archiveName);
+    const dataDirName = path.basename(dataRoot);
+    const parentDir = path.dirname(dataRoot);
+
+    const command = `tar -czf "${archivePath}" -C "${parentDir}" "${dataDirName}"`;
+
+    exec(command, (error) => {
+        if (error) {
+            console.error('Failed to create data export archive:', error);
+            return response.status(500).send('Failed to create data export archive.');
+        }
+
+        response.download(archivePath, archiveName, (downloadError) => {
+            if (downloadError) {
+                console.error('Failed to send data export archive:', downloadError);
+            }
+
+            fs.unlink(archivePath, (unlinkError) => {
+                if (unlinkError) {
+                    console.error('Failed to clean up data export archive:', unlinkError);
+                }
+            });
+        });
+    });
 });
 
 redirectDeprecatedEndpoints(app);
